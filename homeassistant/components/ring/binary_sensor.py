@@ -1,4 +1,4 @@
-"""Component providing HA sensor support for Ring Door Bell/Chimes."""
+"""Component providing HA binary sensor support for Ring cameras."""
 
 from __future__ import annotations
 
@@ -8,58 +8,52 @@ from datetime import datetime
 from typing import Any, Generic
 
 from ring_doorbell import RingCapability, RingEvent
-from ring_doorbell.const import KIND_DING, KIND_MOTION
+from ring_doorbell.const import KIND_MOTION, KIND_MOTION_HUMAN, KIND_MOTION_VEHICLE, KIND_MOTION_OTHER
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.const import Platform
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_at
 
 from . import RingConfigEntry
 from .coordinator import RingListenCoordinator
-from .entity import (
-    DeprecatedInfo,
-    RingBaseEntity,
-    RingDeviceT,
-    RingEntityDescription,
-    async_check_create_deprecated,
-)
+from .entity import RingBaseEntity, RingDeviceT
 
-# Coordinator is used to centralize the data updates
 PARALLEL_UPDATES = 0
+MOTION_CLEAR_TIMEOUT = 30
 
 
 @dataclass(frozen=True, kw_only=True)
-class RingBinarySensorEntityDescription(
-    BinarySensorEntityDescription, RingEntityDescription, Generic[RingDeviceT]
+class RingMotionSensorEntityDescription(
+    BinarySensorEntityDescription, Generic[RingDeviceT]
 ):
-    """Describes Ring binary sensor entity."""
+    """Describes Ring motion binary sensor entity."""
 
-    capability: RingCapability
+    motion_state: str
 
 
-BINARY_SENSOR_TYPES: tuple[RingBinarySensorEntityDescription, ...] = (
-    RingBinarySensorEntityDescription(
-        key=KIND_DING,
-        translation_key=KIND_DING,
-        device_class=BinarySensorDeviceClass.OCCUPANCY,
-        capability=RingCapability.DING,
-        deprecated_info=DeprecatedInfo(
-            new_platform=Platform.EVENT, breaks_in_ha_version="2025.4.0"
-        ),
-    ),
-    RingBinarySensorEntityDescription(
-        key=KIND_MOTION,
+BINARY_SENSOR_TYPES: tuple[RingMotionSensorEntityDescription, ...] = (
+    RingMotionSensorEntityDescription(
+        key=KIND_MOTION_HUMAN,
+        translation_key="person_detected",
         device_class=BinarySensorDeviceClass.MOTION,
-        capability=RingCapability.MOTION_DETECTION,
-        deprecated_info=DeprecatedInfo(
-            new_platform=Platform.EVENT, breaks_in_ha_version="2025.4.0"
-        ),
+        motion_state=KIND_MOTION_HUMAN,
+    ),
+    RingMotionSensorEntityDescription(
+        key=KIND_MOTION_VEHICLE,
+        translation_key="vehicle_detected",
+        device_class=BinarySensorDeviceClass.MOTION,
+        motion_state=KIND_MOTION_VEHICLE,
+    ),
+    RingMotionSensorEntityDescription(
+        key=KIND_MOTION_OTHER,
+        translation_key="motion_detected",
+        device_class=BinarySensorDeviceClass.MOTION,
+        motion_state=KIND_MOTION_OTHER,
     ),
 )
 
@@ -74,38 +68,28 @@ async def async_setup_entry(
     listen_coordinator = ring_data.listen_coordinator
 
     async_add_entities(
-        RingBinarySensor(device, listen_coordinator, description)
+        RingMotionBinarySensor(device, listen_coordinator, description)
         for description in BINARY_SENSOR_TYPES
         for device in ring_data.devices.all_devices
-        if device.has_capability(description.capability)
-        and async_check_create_deprecated(
-            hass,
-            Platform.BINARY_SENSOR,
-            f"{device.id}-{description.key}",
-            description,
-        )
+        if device.has_capability(RingCapability.MOTION_DETECTION)
     )
 
 
-class RingBinarySensor(
+class RingMotionBinarySensor(
     RingBaseEntity[RingListenCoordinator, RingDeviceT], BinarySensorEntity
 ):
-    """A binary sensor implementation for Ring device."""
+    """A binary sensor for Ring motion detection."""
 
-    _active_alert: RingEvent | None = None
-    RingBinarySensorEntityDescription[RingDeviceT]
+    entity_description: RingMotionSensorEntityDescription[RingDeviceT]
 
     def __init__(
         self,
         device: RingDeviceT,
         coordinator: RingListenCoordinator,
-        description: RingBinarySensorEntityDescription[RingDeviceT],
+        description: RingMotionSensorEntityDescription[RingDeviceT],
     ) -> None:
         """Initialize a binary sensor for Ring device."""
-        super().__init__(
-            device,
-            coordinator,
-        )
+        super().__init__(device, coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{device.id}-{description.key}"
         self._attr_is_on = False
@@ -118,7 +102,7 @@ class RingBinarySensor(
         self._attr_is_on = True
         self._active_alert = alert
         loop = self.hass.loop
-        when = loop.time() + alert.expires_in
+        when = loop.time() + MOTION_CLEAR_TIMEOUT
         if self._cancel_callback:
             self._cancel_callback()
         self._cancel_callback = async_call_at(self.hass, self._async_cancel_event, when)
@@ -132,9 +116,12 @@ class RingBinarySensor(
         self.async_write_ha_state()
 
     def _get_coordinator_alert(self) -> RingEvent | None:
-        return self.coordinator.alerts.get(
-            (self._device.device_api_id, self.entity_description.key)
+        alert = self.coordinator.alerts.get(
+            (self._device.device_api_id, KIND_MOTION)
         )
+        if alert and alert.state == self.entity_description.motion_state:
+            return alert
+        return None
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -153,16 +140,15 @@ class RingBinarySensor(
     @property
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return the state attributes."""
-        attrs = super().extra_state_attributes
+        attrs = dict(super().extra_state_attributes or {})
 
         if self._active_alert is None:
             return attrs
 
-        assert isinstance(attrs, dict)
         attrs["state"] = self._active_alert.state
         now = self._active_alert.now
-        expires_in = self._active_alert.expires_in
-        assert now and expires_in
-        attrs["expires_at"] = datetime.fromtimestamp(now + expires_in).isoformat()
+        attrs["expires_at"] = datetime.fromtimestamp(
+            now + MOTION_CLEAR_TIMEOUT
+        ).isoformat()
 
         return attrs

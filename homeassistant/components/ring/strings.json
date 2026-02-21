@@ -56,6 +56,15 @@
     "binary_sensor": {
       "ding": {
         "name": "Ding"
+      },
+      "person_detected": {
+        "name": "Person detected"
+      },
+      "vehicle_detected": {
+        "name": "Vehicle detected"
+      },
+      "motion_detected": {
+        "name": "Motion detected"
       }
     },
     "button": {

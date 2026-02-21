@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Generic
 
 from ring_doorbell import RingCapability, RingEvent as RingAlert
-from ring_doorbell.const import KIND_DING, KIND_INTERCOM_UNLOCK, KIND_MOTION
+from ring_doorbell.const import KIND_DING, KIND_INTERCOM_UNLOCK, KIND_MOTION, KIND_MOTION_HUMAN, KIND_MOTION_VEHICLE, KIND_MOTION_OTHER
 
 from homeassistant.components.event import (
     EventDeviceClass,
@@ -41,7 +41,7 @@ EVENT_DESCRIPTIONS: tuple[RingEventEntityDescription, ...] = (
         key=KIND_MOTION,
         translation_key=KIND_MOTION,
         device_class=EventDeviceClass.MOTION,
-        event_types=[KIND_MOTION],
+        event_types=[KIND_MOTION_HUMAN, KIND_MOTION_VEHICLE, KIND_MOTION_OTHER],
         capability=RingCapability.MOTION_DETECTION,
     ),
     RingEventEntityDescription(
@@ -100,7 +100,9 @@ class RingEvent(RingBaseEntity[RingListenCoordinator, RingDeviceT], EventEntity)
     @callback
     def _handle_coordinator_update(self) -> None:
         if (alert := self._get_coordinator_alert()) and not alert.is_update:
-            self._async_handle_event(alert.kind)
+            event_type = alert.state if alert.kind == KIND_MOTION else alert.kind
+            if event_type in self.entity_description.event_types:
+                self._async_handle_event(event_type)
         super()._handle_coordinator_update()
 
     @property

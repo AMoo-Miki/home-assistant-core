@@ -62,6 +62,36 @@
       "siren": {
         "default": "mdi:alarm-bell"
       }
+    },
+    "binary_sensor": {
+      "person_detected": {
+        "default": "mdi:motion-sensor-off",
+        "state": {
+          "on": "mdi:motion-sensor"
+        }
+      },
+      "vehicle_detected": {
+        "default": "mdi:car-off",
+        "state": {
+          "on": "mdi:car"
+        }
+      },
+      "motion_detected": {
+        "default": "mdi:broadcast-off",
+        "state": {
+          "on": "mdi:broadcast"
+        }
+      }
+    },
+    "event": {
+      "motion": {
+        "default": "mdi:motion-sensor",
+        "state": {
+          "human": "mdi:motion-sensor",
+          "vehicle": "mdi:car",
+          "other_motion": "mdi:broadcast"
+        }
+      }
     }
   }
 }
