@@ -384,6 +384,7 @@ class KodiEntity(MediaPlayerEntity):
                     "season",
                     "episode",
                     "streamdetails",
+                    "art",
                 ],
             )
         else:
@@ -453,6 +454,11 @@ class KodiEntity(MediaPlayerEntity):
     @property
     def media_image_url(self):
         """Image url of current playing media."""
+        art = self._item.get("art", {})
+        for art_type in ("poster", "season.poster", "tvshow.poster"):
+            if art_val := art.get(art_type):
+                return self._kodi.thumbnail_url(art_val)
+
         if (thumbnail := self._item.get("thumbnail")) is None:
             return None
 
@@ -513,6 +519,44 @@ class KodiEntity(MediaPlayerEntity):
             hdr_type := video_details[0].get("hdrtype")
         ):
             state_attr["dynamic_range"] = hdr_type
+
+        # Log full art dictionary for debugging
+        art = self._item.get("art", {})
+        _LOGGER.debug("Kodi art dictionary: %s", art)
+
+        # Custom artwork: prefer discart, fall back to clearlogo
+        artwork_key = None
+        for art_type in ("discart", "season.banner", "tvshow.banner", "clearlogo", "tvshow.discart", "tvshow.clearlogo"):
+            if art.get(art_type):
+                artwork_key = art_type
+                break
+
+        if artwork_key:
+            state_attr["artwork_url"] = (
+                f"/api/media_player_proxy/{self.entity_id}"
+                f"/browse_media/artwork/{artwork_key}"
+                f"?token={self.access_token}"
+            )
+        else:
+            state_attr["artwork_url"] = None
+
+        # Normalized display title
+        item_type = self._item.get("type", "")
+        if item_type == "song":
+            artist = self._item.get("artist", [""])
+            if isinstance(artist, list):
+                artist = artist[0] if artist else ""
+            title = self._item.get("title", "")
+            state_attr["display_title"] = f"{artist} - {title}" if artist else title
+        elif item_type == "episode":
+            show = self._item.get("showtitle", "")
+            season = self._item.get("season", 0)
+            episode = self._item.get("episode", 0)
+            state_attr["display_title"] = f"{show} {season}x{episode:02d}"
+        elif item_type == "movie":
+            state_attr["display_title"] = self._item.get("title", self._item.get("label", ""))
+        else:
+            state_attr["display_title"] = self._item.get("title", self._item.get("label", ""))
 
         return state_attr
 
@@ -832,6 +876,14 @@ class KodiEntity(MediaPlayerEntity):
         media_image_id: str | None = None,
     ) -> tuple[bytes | None, str | None]:
         """Get media image from kodi server."""
+        # Custom artwork proxy
+        if media_content_type == "artwork":
+            art = self._item.get("art", {})
+            if art_val := art.get(media_content_id):
+                url = self._kodi.thumbnail_url(art_val)
+                return await self._async_fetch_image(url)
+            return (None, None)
+
         try:
             image_url, _, _ = await get_media_info(
                 self._kodi, media_content_id, media_content_type

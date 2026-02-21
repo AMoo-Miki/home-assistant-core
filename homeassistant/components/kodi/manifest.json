@@ -1,6 +1,7 @@
 {
   "domain": "kodi",
   "name": "Kodi",
+  "version": "2026.3.2-miki",
   "after_dependencies": ["media_source"],
   "codeowners": ["@OnFreund"],
   "config_flow": true,

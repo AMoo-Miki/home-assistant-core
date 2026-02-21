@@ -54,7 +54,9 @@
     "media_player": {
       "media_player": {
         "state_attributes": {
-          "dynamic_range": { "name": "Dynamic range" }
+          "dynamic_range": { "name": "Dynamic range" },
+          "artwork_url": { "name": "Artwork URL" },
+          "display_title": { "name": "Display title" }
         }
       }
     }
