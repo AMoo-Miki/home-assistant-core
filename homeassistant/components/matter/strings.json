@@ -387,6 +387,9 @@
       "battery_voltage": {
         "name": "Battery voltage"
       },
+      "reboot_count": {
+        "name": "Reboot count"
+      },
       "contamination_state": {
         "name": "Contamination state",
         "state": {
