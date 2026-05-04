@@ -2,7 +2,7 @@
   "domain": "ring",
   "name": "Ring",
   "codeowners": ["@sdb9696"],
-  "version": "2026.3.2-miki",
+  "version": "2026.4.2-miki",
   "config_flow": true,
   "dependencies": ["ffmpeg"],
   "dhcp": [
